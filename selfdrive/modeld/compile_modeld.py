@@ -171,9 +171,10 @@ def make_warp(nv12, model_w, model_h, frame_skip):
   return warp_enqueue
 
 
-def make_run_policy(vision_runner, off_policy_runner, on_policy_runner, vision_features_slice, frame_skip):
+def make_run_policy(model_runners, model_metadata, frame_skip):
   sample_desire_fn = partial(sample_desire, frame_skip=frame_skip)
   sample_skip_fn = partial(sample_skip, frame_skip=frame_skip)
+  vision_features_slice = model_metadata['vision']['output_slices']['hidden_state']
 
   def run_policy(img, big_img, feat_q, desire_q, desire, traffic_convention, action_t):
     desire = desire.to(Device.DEFAULT)
@@ -181,7 +182,7 @@ def make_run_policy(vision_runner, off_policy_runner, on_policy_runner, vision_f
     action_t = action_t.to(Device.DEFAULT)
     Tensor.realize(desire, traffic_convention, action_t)
     desire_buf = shift_and_sample(desire_q, desire.reshape(1, 1, -1), sample_desire_fn)
-    vision_out = next(iter(vision_runner({'img': img, 'big_img': big_img}).values())).cast('float32')
+    vision_out = next(iter(model_runners['vision']({'img': img, 'big_img': big_img}).values())).cast('float32')
 
     new_feat = vision_out[:, vision_features_slice].reshape(1, -1).unsqueeze(0)
     feat_buf = shift_and_sample(feat_q, new_feat, sample_skip_fn)
@@ -192,8 +193,8 @@ def make_run_policy(vision_runner, off_policy_runner, on_policy_runner, vision_f
       'traffic_convention': traffic_convention,
       'action_t': action_t,
     }
-    on_policy_out = next(iter(on_policy_runner(inputs).values())).cast('float32')
-    off_policy_out = next(iter(off_policy_runner(inputs).values())).cast('float32')
+    on_policy_out = next(iter(model_runners['on_policy'](inputs).values())).cast('float32')
+    off_policy_out = next(iter(model_runners['off_policy'](inputs).values())).cast('float32')
     return vision_out, on_policy_out, off_policy_out
   return run_policy
 
@@ -282,19 +283,14 @@ if __name__ == "__main__":
   }
   model_w, model_h = args.model_size
 
-  model_runners = {}
-  model_metadata = {}
-  for name, path in model_paths.items():
-    model_runners[name] = OnnxRunner(path)
-    model_metadata[name] = make_metadata_dict(path)
+  model_runners = {name: OnnxRunner(path) for name, path in model_paths.items()}
+  model_metadata = {name: make_metadata_dict(path) for name, path in model_paths.items()}
 
   vision_metadata = model_metadata['vision']
   on_policy_metadata = model_metadata['on_policy']
   assert model_metadata['off_policy']['input_shapes'] == on_policy_metadata['input_shapes']
 
-  run_policy_jit = TinyJit(make_run_policy(model_runners['vision'], model_runners['off_policy'],
-                                           model_runners['on_policy'],
-                                           vision_metadata['output_slices']['hidden_state'], args.frame_skip), prune=True)
+  run_policy_jit = TinyJit(make_run_policy(model_runners, model_metadata, args.frame_skip), prune=True)
 
   out['metadata'].update(model_metadata)
 
