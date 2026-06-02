@@ -275,25 +275,28 @@ if __name__ == "__main__":
   args = p.parse_args()
 
   out = defaultdict(dict)
-  vision_path = read_file_chunked_to_shm(args.vision_onnx)
-  off_policy_path = read_file_chunked_to_shm(args.off_policy_onnx)
-  on_policy_path = read_file_chunked_to_shm(args.on_policy_onnx)
+  model_paths = {
+    'vision': read_file_chunked_to_shm(args.vision_onnx),
+    'off_policy': read_file_chunked_to_shm(args.off_policy_onnx),
+    'on_policy': read_file_chunked_to_shm(args.on_policy_onnx),
+  }
   model_w, model_h = args.model_size
 
-  vision_runner = OnnxRunner(vision_path)
-  off_policy_runner = OnnxRunner(off_policy_path)
-  on_policy_runner = OnnxRunner(on_policy_path)
-  vision_metadata = make_metadata_dict(vision_path)
-  off_policy_metadata = make_metadata_dict(off_policy_path)
-  on_policy_metadata = make_metadata_dict(on_policy_path)
-  assert off_policy_metadata['input_shapes'] == on_policy_metadata['input_shapes']
+  model_runners = {}
+  model_metadata = {}
+  for name, path in model_paths.items():
+    model_runners[name] = OnnxRunner(path)
+    model_metadata[name] = make_metadata_dict(path)
 
-  run_policy_jit = TinyJit(make_run_policy(vision_runner, off_policy_runner, on_policy_runner,
+  vision_metadata = model_metadata['vision']
+  on_policy_metadata = model_metadata['on_policy']
+  assert model_metadata['off_policy']['input_shapes'] == on_policy_metadata['input_shapes']
+
+  run_policy_jit = TinyJit(make_run_policy(model_runners['vision'], model_runners['off_policy'],
+                                           model_runners['on_policy'],
                                            vision_metadata['output_slices']['hidden_state'], args.frame_skip), prune=True)
 
-  out['metadata']['vision'] = vision_metadata
-  out['metadata']['off_policy'] = off_policy_metadata
-  out['metadata']['on_policy'] = on_policy_metadata
+  out['metadata'].update(model_metadata)
 
   make_random_model_inputs = partial(make_random_images, keys=['img', 'big_img'], shape=vision_metadata['input_shapes']['img'])
   out['run_policy'] = compile_jit(run_policy_jit, make_random_model_inputs, POLICY_INPUTS,
