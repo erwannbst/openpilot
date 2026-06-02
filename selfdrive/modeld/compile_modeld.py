@@ -180,7 +180,6 @@ def make_run_policy(vision_runner, off_policy_runner, on_policy_runner, vision_f
     traffic_convention = traffic_convention.to(Device.DEFAULT)
     action_t = action_t.to(Device.DEFAULT)
     Tensor.realize(desire, traffic_convention, action_t)
-
     desire_buf = shift_and_sample(desire_q, desire.reshape(1, 1, -1), sample_desire_fn)
     vision_out = next(iter(vision_runner({'img': img, 'big_img': big_img}).values())).cast('float32')
 
