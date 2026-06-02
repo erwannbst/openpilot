@@ -283,23 +283,22 @@ if __name__ == "__main__":
   model_w, model_h = args.model_size
 
   model_runners = {name: OnnxRunner(path) for name, path in model_paths.items()}
-  model_metadata = {name: make_metadata_dict(path) for name, path in model_paths.items()}
+  out = {'metadata': {name: make_metadata_dict(path) for name, path in model_paths.items()}}
 
-  assert model_metadata['off_policy']['input_shapes'] == model_metadata['on_policy']['input_shapes']
+  assert out['metadata']['off_policy']['input_shapes'] == out['metadata']['on_policy']['input_shapes']
 
-  run_policy_jit = TinyJit(make_run_policy(model_runners, model_metadata, args.frame_skip), prune=True)
-  out = {'metadata': model_metadata}
+  run_policy_jit = TinyJit(make_run_policy(model_runners, out['metadata'], args.frame_skip), prune=True)
 
-  make_random_model_inputs = partial(make_random_images, keys=['img', 'big_img'], shape=model_metadata['vision']['input_shapes']['img'])
+  make_random_model_inputs = partial(make_random_images, keys=['img', 'big_img'], shape=out['metadata']['vision']['input_shapes']['img'])
   out['run_policy'] = compile_jit(run_policy_jit, make_random_model_inputs, POLICY_INPUTS,
-                                  args.frame_skip, model_metadata['vision'], model_metadata['on_policy'])
+                                  args.frame_skip, out['metadata']['vision'], out['metadata']['on_policy'])
 
   for cam_w, cam_h in args.camera_resolutions:
     nv12 = NV12Frame(cam_w, cam_h, *get_nv12_info(cam_w, cam_h))
     make_random_warp_inputs = partial(make_random_images, keys=['frame', 'big_frame'], shape=nv12.size, device=WARP_DEV)
     warp_enqueue = TinyJit(make_warp(nv12, model_w, model_h, args.frame_skip), prune=True)
     out[(cam_w,cam_h)] = compile_jit(warp_enqueue, make_random_warp_inputs, WARP_INPUTS,
-                                     args.frame_skip, model_metadata['vision'], model_metadata['on_policy'])
+                                     args.frame_skip, out['metadata']['vision'], out['metadata']['on_policy'])
 
   with open(args.output, "wb") as f:
     pickle.dump(out, f)
