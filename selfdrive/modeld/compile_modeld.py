@@ -113,10 +113,25 @@ def make_frame_prepare(nv12: NV12Frame, model_w, model_h):
   return frame_prepare_tinygrad
 
 
-def make_input_queues(vision_input_shapes, policy_input_shapes, frame_skip, device):
+def make_warp_input_queues(vision_input_shapes, frame_skip, device):
   img = vision_input_shapes['img']  # (1, 12, 128, 256)
   n_frames = img[1] // 6
   img_buf_shape = (frame_skip * (n_frames - 1) + 1, 6, img[2], img[3])
+
+  npy = {
+    'tfm': np.zeros((3, 3), dtype=np.float32),
+    'big_tfm': np.zeros((3, 3), dtype=np.float32),
+  }
+  input_queues = {
+    'img_q': Tensor(np.zeros(img_buf_shape, dtype=np.uint8), device=device).contiguous().realize(),
+    'big_img_q': Tensor(np.zeros(img_buf_shape, dtype=np.uint8), device=device).contiguous().realize(),
+    **{k: Tensor(v, device='NPY').realize() for k, v in npy.items()},
+  }
+  return input_queues, npy
+
+
+def make_policy_input_queues(vision_input_shapes, policy_input_shapes, frame_skip, device):
+  input_queues, npy = make_warp_input_queues(vision_input_shapes, frame_skip, device)
 
   fb = policy_input_shapes['features_buffer']  # (1, 25, 512)
   dp = policy_input_shapes['desire_pulse']  # (1, 25, 8)
@@ -124,20 +139,17 @@ def make_input_queues(vision_input_shapes, policy_input_shapes, frame_skip, devi
   #TODO action_t is hardcoded to match tc for future compatibility
   at = tc
 
-  npy = {
+  policy_npy = {
     'desire': np.zeros(dp[2], dtype=np.float32),
     'traffic_convention': np.zeros(tc, dtype=np.float32),
-    'tfm': np.zeros((3, 3), dtype=np.float32),
-    'big_tfm': np.zeros((3, 3), dtype=np.float32),
     'action_t': np.zeros(at, dtype=np.float32),
   }
-  input_queues = {
-    'img_q': Tensor(np.zeros(img_buf_shape, dtype=np.uint8), device=device).contiguous().realize(),
-    'big_img_q': Tensor(np.zeros(img_buf_shape, dtype=np.uint8), device=device).contiguous().realize(),
+  npy.update(policy_npy)
+  input_queues.update({
     'feat_q': Tensor(np.zeros((frame_skip * (fb[1] - 1) + 1, fb[0], fb[2]), dtype=np.float32), device=device).contiguous().realize(),
     'desire_q': Tensor(np.zeros((frame_skip * dp[1], dp[0], dp[2]), dtype=np.float32), device=device).contiguous().realize(),
-    **{k: Tensor(v, device='NPY').realize() for k, v in npy.items()},
-  }
+    **{k: Tensor(v, device='NPY').realize() for k, v in policy_npy.items()},
+  })
   return input_queues, npy
 
 
@@ -199,13 +211,10 @@ def make_run_policy(model_runners, model_metadata, frame_skip):
   return run_policy
 
 
-def compile_jit(jit, make_random_inputs, input_keys, frame_skip, vision_metadata, policy_metadata):
-  vision_input_shapes = vision_metadata['input_shapes']
-  policy_input_shapes = policy_metadata['input_shapes']
-
+def compile_jit(jit, make_random_inputs, input_keys, make_input_queues):
   SEED = 42
   def random_inputs_run(fn, seed, test_val=None, test_buffers=None, expect_match=True):
-    input_queues, npy = make_input_queues(vision_input_shapes, policy_input_shapes, frame_skip, Device.DEFAULT)
+    input_queues, npy = make_input_queues(Device.DEFAULT)
     np.random.seed(seed)
     Tensor.manual_seed(seed)
 
@@ -289,16 +298,18 @@ if __name__ == "__main__":
 
   run_policy_jit = TinyJit(make_run_policy(model_runners, out['metadata'], args.frame_skip), prune=True)
 
+  make_policy_queues = partial(make_policy_input_queues, out['metadata']['vision']['input_shapes'],
+                               out['metadata']['on_policy']['input_shapes'], args.frame_skip)
   make_random_model_inputs = partial(make_random_images, keys=['img', 'big_img'], shape=out['metadata']['vision']['input_shapes']['img'])
   out['run_policy'] = compile_jit(run_policy_jit, make_random_model_inputs, POLICY_INPUTS,
-                                  args.frame_skip, out['metadata']['vision'], out['metadata']['on_policy'])
+                                  make_policy_queues)
 
   for cam_w, cam_h in args.camera_resolutions:
     nv12 = NV12Frame(cam_w, cam_h, *get_nv12_info(cam_w, cam_h))
     make_random_warp_inputs = partial(make_random_images, keys=['frame', 'big_frame'], shape=nv12.size, device=WARP_DEV)
     warp_enqueue = TinyJit(make_warp(nv12, model_w, model_h, args.frame_skip), prune=True)
-    out[(cam_w,cam_h)] = compile_jit(warp_enqueue, make_random_warp_inputs, WARP_INPUTS,
-                                     args.frame_skip, out['metadata']['vision'], out['metadata']['on_policy'])
+    make_warp_queues = partial(make_warp_input_queues, out['metadata']['vision']['input_shapes'], args.frame_skip)
+    out[(cam_w,cam_h)] = compile_jit(warp_enqueue, make_random_warp_inputs, WARP_INPUTS, make_warp_queues)
 
   with open(args.output, "wb") as f:
     pickle.dump(out, f)
