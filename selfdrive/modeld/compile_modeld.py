@@ -5,7 +5,7 @@ import os
 import pickle
 import time
 from functools import partial
-from collections import namedtuple, defaultdict
+from collections import namedtuple
 
 import numpy as np
 
@@ -275,7 +275,6 @@ if __name__ == "__main__":
   p.add_argument('--frame-skip', type=int, required=True)
   args = p.parse_args()
 
-  out = defaultdict(dict)
   model_paths = {
     'vision': read_file_chunked_to_shm(args.vision_onnx),
     'off_policy': read_file_chunked_to_shm(args.off_policy_onnx),
@@ -289,8 +288,7 @@ if __name__ == "__main__":
   assert model_metadata['off_policy']['input_shapes'] == model_metadata['on_policy']['input_shapes']
 
   run_policy_jit = TinyJit(make_run_policy(model_runners, model_metadata, args.frame_skip), prune=True)
-
-  out['metadata'].update(model_metadata)
+  out = {'metadata': model_metadata}
 
   make_random_model_inputs = partial(make_random_images, keys=['img', 'big_img'], shape=model_metadata['vision']['input_shapes']['img'])
   out['run_policy'] = compile_jit(run_policy_jit, make_random_model_inputs, POLICY_INPUTS,
