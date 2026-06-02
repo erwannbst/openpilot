@@ -286,24 +286,22 @@ if __name__ == "__main__":
   model_runners = {name: OnnxRunner(path) for name, path in model_paths.items()}
   model_metadata = {name: make_metadata_dict(path) for name, path in model_paths.items()}
 
-  vision_metadata = model_metadata['vision']
-  on_policy_metadata = model_metadata['on_policy']
-  assert model_metadata['off_policy']['input_shapes'] == on_policy_metadata['input_shapes']
+  assert model_metadata['off_policy']['input_shapes'] == model_metadata['on_policy']['input_shapes']
 
   run_policy_jit = TinyJit(make_run_policy(model_runners, model_metadata, args.frame_skip), prune=True)
 
   out['metadata'].update(model_metadata)
 
-  make_random_model_inputs = partial(make_random_images, keys=['img', 'big_img'], shape=vision_metadata['input_shapes']['img'])
+  make_random_model_inputs = partial(make_random_images, keys=['img', 'big_img'], shape=model_metadata['vision']['input_shapes']['img'])
   out['run_policy'] = compile_jit(run_policy_jit, make_random_model_inputs, POLICY_INPUTS,
-                                  args.frame_skip, vision_metadata, on_policy_metadata)
+                                  args.frame_skip, model_metadata['vision'], model_metadata['on_policy'])
 
   for cam_w, cam_h in args.camera_resolutions:
     nv12 = NV12Frame(cam_w, cam_h, *get_nv12_info(cam_w, cam_h))
     make_random_warp_inputs = partial(make_random_images, keys=['frame', 'big_frame'], shape=nv12.size, device=WARP_DEV)
     warp_enqueue = TinyJit(make_warp(nv12, model_w, model_h, args.frame_skip), prune=True)
     out[(cam_w,cam_h)] = compile_jit(warp_enqueue, make_random_warp_inputs, WARP_INPUTS,
-                                     args.frame_skip, vision_metadata, on_policy_metadata)
+                                     args.frame_skip, model_metadata['vision'], model_metadata['on_policy'])
 
   with open(args.output, "wb") as f:
     pickle.dump(out, f)
