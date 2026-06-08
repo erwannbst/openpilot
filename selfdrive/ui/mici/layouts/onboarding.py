@@ -341,6 +341,9 @@ class OnboardingWindow(Widget):
     self._completed_callback = completed_callback
     self._accepted_terms: bool = ui_state.params.get("HasAcceptedTerms") == terms_version
     self._training_done: bool = ui_state.params.get("CompletedTrainingVersion") == training_version
+    if self._accepted_terms and not self._training_done:
+      ui_state.params.put("CompletedTrainingVersion", training_version)
+      self._training_done = True
 
     self.set_rect(rl.Rectangle(0, 0, gui_app.width, gui_app.height))
 
@@ -374,7 +377,10 @@ class OnboardingWindow(Widget):
 
   def _on_terms_accepted(self):
     ui_state.params.put("HasAcceptedTerms", terms_version)
-    gui_app.push_widget(self._training_guide)
+    # Diagnostic branch: skip the DM camera training so settings/SSH are reachable
+    # when the driver camera is stuck on "camera starting".
+    ui_state.params.put("CompletedTrainingVersion", training_version)
+    self.close()
 
   def _on_completed_training(self):
     ui_state.params.put("CompletedTrainingVersion", training_version)
