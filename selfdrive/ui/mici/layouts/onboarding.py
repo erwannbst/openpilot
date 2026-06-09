@@ -1,3 +1,4 @@
+import os
 import math
 import numpy as np
 import qrcode
@@ -261,12 +262,18 @@ class TrainingGuide(NavWidget):
   def __init__(self, completed_callback: Callable[[], None]):
     super().__init__()
 
-    self._steps = [
-      TrainingGuideAttentionNotice(continue_callback=lambda: gui_app.push_widget(self._steps[1])),
-      TrainingGuidePreDMTutorial(continue_callback=lambda: gui_app.push_widget(self._steps[2])),
-      TrainingGuideDMTutorial(continue_callback=lambda: gui_app.push_widget(self._steps[3])),
-      TrainingGuideRecordFront(continue_callback=completed_callback),
-    ]
+    if os.getenv("DISABLE_DRIVER"):
+      self._steps = [
+        TrainingGuideAttentionNotice(continue_callback=lambda: gui_app.push_widget(self._steps[1])),
+        TrainingGuideRecordFront(continue_callback=completed_callback),
+      ]
+    else:
+      self._steps = [
+        TrainingGuideAttentionNotice(continue_callback=lambda: gui_app.push_widget(self._steps[1])),
+        TrainingGuidePreDMTutorial(continue_callback=lambda: gui_app.push_widget(self._steps[2])),
+        TrainingGuideDMTutorial(continue_callback=lambda: gui_app.push_widget(self._steps[3])),
+        TrainingGuideRecordFront(continue_callback=completed_callback),
+      ]
 
     self._child(self._steps[0])
     self._steps[0].set_enabled(lambda: self.enabled and not self.is_dismissing)  # for nav stack

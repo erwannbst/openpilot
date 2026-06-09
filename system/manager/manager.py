@@ -107,7 +107,7 @@ def manager_cleanup() -> None:
 def manager_thread() -> None:
   cloudlog.bind(daemon="manager")
   cloudlog.info("manager start")
-  cloudlog.info({"environ": os.environ})
+  cloudlog.info({"environ": {k: v for k, v in os.environ.items() if k != "DISABLE_DRIVER"}})
 
   params = Params()
 
