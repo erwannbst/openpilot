@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import math
 from numbers import Number
 
@@ -23,6 +24,7 @@ from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
 State = log.SelfdriveState.OpenpilotState
 LaneChangeState = log.LaneChangeState
 LaneChangeDirection = log.LaneChangeDirection
+DISABLE_DRIVER_CAM = "DISABLE_DRIVER" in os.environ
 
 ACTUATOR_FIELDS = tuple(car.CarControl.Actuators.schema.fields.keys())
 
@@ -193,8 +195,8 @@ class Controls:
     cs.upAccelCmd = float(self.LoC.pid.p)
     cs.uiAccelCmd = float(self.LoC.pid.i)
     cs.ufAccelCmd = float(self.LoC.pid.f)
-    cs.forceDecel = bool((self.sm['driverMonitoringState'].alertLevel == log.DriverMonitoringState.AlertLevel.three) or
-                         (self.sm['selfdriveState'].state == State.softDisabling))
+    dm_force_decel = not DISABLE_DRIVER_CAM and self.sm['driverMonitoringState'].alertLevel == log.DriverMonitoringState.AlertLevel.three
+    cs.forceDecel = bool(dm_force_decel or (self.sm['selfdriveState'].state == State.softDisabling))
 
     lat_tuning = self.CP.lateralTuning.which()
     if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
