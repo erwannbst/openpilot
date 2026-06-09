@@ -6,6 +6,11 @@ export NUMEXPR_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 
+# Diagnostic mode: run without the driver-facing camera. This propagates to
+# manager and every child process (camerad, ui, selfdrived, controlsd, ...).
+# Set to empty/remove this line to restore normal driver monitoring.
+export DISABLE_DRIVER=1
+
 # models get lower priority than ui
 # - ui is ~5ms
 # - modeld is 20ms
